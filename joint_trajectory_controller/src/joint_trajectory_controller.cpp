@@ -43,6 +43,7 @@
 #include "rclcpp_lifecycle/state.hpp"
 #include "std_msgs/msg/header.hpp"
 
+
 namespace joint_trajectory_controller
 {
 JointTrajectoryController::JointTrajectoryController()
@@ -119,6 +120,28 @@ controller_interface::return_type JointTrajectoryController::update(
     return controller_interface::return_type::OK;
   }
 
+  // current state update
+  state_current_.time_from_start.set__sec(0);
+  read_state_from_hardware(state_current_);
+
+  if (start_holding)
+  {
+    // Command to stay at current position
+    trajectory_msgs::msg::JointTrajectory current_pose_msg;
+    current_pose_msg.header.stamp = rclcpp::Time(0);
+    current_pose_msg.joint_names = params_.joints;
+    current_pose_msg.points.push_back(state_current_);
+    current_pose_msg.points[0].velocities.clear(); //ensure no velocity
+    current_pose_msg.points[0].accelerations.clear(); //ensure no acceleration
+    current_pose_msg.points[0].effort.clear(); //ensure no explicit effort (PID will fix this)
+
+    // RCLCPP_INFO_STREAM(get_node()->get_logger(), "Will hold at position "<<std::accumulate(current_pose_msg.points[0].positions.begin(), current_pose_msg.points[0].positions.end(), std::string{}));
+
+    aborted_traj_ptr = traj_external_point_ptr_->get_trajectory_msg(); // Used to avoid updating the trajectory back to the aborted one
+    traj_external_point_ptr_->update(std::make_shared<trajectory_msgs::msg::JointTrajectory>(current_pose_msg));
+    start_holding = false;
+  }
+
   auto compute_error_for_joint = [&](
                                    JointTrajectoryPoint & error, int index,
                                    const JointTrajectoryPoint & current,
@@ -140,7 +163,7 @@ controller_interface::return_type JointTrajectoryController::update(
   // Check if a new external message has been received from nonRT threads
   auto current_external_msg = traj_external_point_ptr_->get_trajectory_msg();
   auto new_external_msg = traj_msg_external_point_ptr_.readFromRT();
-  if (current_external_msg != *new_external_msg)
+  if (current_external_msg != *new_external_msg and aborted_traj_ptr!=*new_external_msg)
   {
     fill_partial_goal(*new_external_msg);
     sort_to_local_joint_order(*new_external_msg);
@@ -159,9 +182,6 @@ controller_interface::return_type JointTrajectoryController::update(
     }
   };
 
-  // current state update
-  state_current_.time_from_start.set__sec(0);
-  read_state_from_hardware(state_current_);
 
   // currently carrying out a trajectory
   if (traj_point_active_ptr_ && (*traj_point_active_ptr_)->has_trajectory_msg())
@@ -1258,11 +1278,7 @@ void JointTrajectoryController::preempt_active_goal()
 
 void JointTrajectoryController::set_hold_position()
 {
-  trajectory_msgs::msg::JointTrajectory empty_msg;
-  empty_msg.header.stamp = rclcpp::Time(0);
-
-  auto traj_msg = std::make_shared<trajectory_msgs::msg::JointTrajectory>(empty_msg);
-  add_new_trajectory_msg(traj_msg);
+  start_holding = true; // Should I use writeFromNonRT?
 }
 
 bool JointTrajectoryController::contains_interface_type(

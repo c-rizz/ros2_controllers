@@ -180,6 +180,7 @@ protected:
   std::shared_ptr<trajectory_msgs::msg::JointTrajectory> traj_msg_home_ptr_ = nullptr;
   realtime_tools::RealtimeBuffer<std::shared_ptr<trajectory_msgs::msg::JointTrajectory>>
     traj_msg_external_point_ptr_;
+  std::shared_ptr<trajectory_msgs::msg::JointTrajectory> aborted_traj_ptr = nullptr;
 
   using ControllerStateMsg = control_msgs::msg::JointTrajectoryControllerState;
   using StatePublisher = realtime_tools::RealtimePublisher<ControllerStateMsg>;
@@ -254,6 +255,7 @@ protected:
 
   bool read_state_from_command_interfaces(JointTrajectoryPoint & state);
 
+  bool start_holding = true; //Should the controller start by holding position?
 private:
   bool contains_interface_type(
     const std::vector<std::string> & interface_type_list, const std::string & interface_type);
